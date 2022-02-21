@@ -3875,3 +3875,170 @@ firebase login
 firebase deploy
 ```
 * extra: [how-to-fix-broken-routes-after-deployment](https://academind.com/learn/angular/angular-q-a/#how-to-fix-broken-routes-after-deployment 'https://academind.com/learn/angular/angular-q-a/#how-to-fix-broken-routes-after-deployment')
+
+
+# Section 24: NgRx
+* Maintained and developed by part of the angular team.
+* Used for state management in bigger angular applications.
+* Note: that it is perfectly fine to manage state as done previously using RxJS and services. Should decide for yourself which is better.
+* Will use course project for this section.
+
+## What is application state
+* Angular compiles to JS bundles that are run in the browser. The data that is used by the application during runtime is stored and managed in memory (RAM). 
+* Application state is the data that is stored during runtime and influences what the application displays on the screen. 
+* When the application is reloaded the memory is cleared and application state is therefore lost.
+* One way to overcome this is to store important data in a backend, this was done in the course project and is known as persistent state.
+
+<img src="./figures/application-state.png" alt="alt text" title="image Title" width="600">
+
+
+* State is essentially managed through service and components that store data. For smaller applications this is perfectly fine, in larger application it can be difficult to keep track of how changes to one part of the application will affect the state of the application. This is because of the complex links between components and services.
+* RxJS already partly addresses this with the use of subjects and observables. 
+
+## What is NgRx:
+* [NgRx docs](https://ngrx.io/guide/store 'https://ngrx.io/guide/store')
+
+<img src="./figures/rxjs-issues.png" alt="alt text" title="image Title" width="600">
+
+### Redux:
+* Redux is a state management pattern, it is also a library that helps you implement that pattern into any application.
+
+<img src="./figures/redux.png" alt="alt text" title="image Title" width="600">
+
+* With redux the state of the application is stored in a single place, i.e. all the data that determines the state of the application. This data will be categorized/nested.
+* The rest of the application receives this data from that single location.
+* In redux to change the state a action is dispatched, which is a JS object specifying the changes.
+* Redux offers a clean flow of data.
+* Can use the redux library, not restricted to angular only. NgRx is just Angular's version of redux.
+
+<img src="./figures/ngrx.png" alt="alt text" title="image Title" width="600">
+
+## Getting started with reducers
+* To install first package run
+```
+npm install --save @ngrx/store
+```
+* Then restart ng serve
+
+* Will start by defining the Actions for the shopping-list feature.
+* Create a new file named 'shopping-list.actions.ts; under the 'store' directory within the feature module.
+* This file will contain definitions for all the actions sent to a reducer of the feature module.
+
+shopping-list.action.ts:
+```
+import { Action } from '@ngrx/store'
+import { Ingredient } from 'src/app/shared/ingredient.model';
+
+const ADD_INGREDIENT = 'ADD_INGREDIENT';
+
+export class AddIngredient implements Action{
+    readonly type = ADD_INGREDIENT;
+    payload: Ingredient;
+
+}
+
+```
+* The class implements the `Action` interface which requires it to have a `type` property. The property uses the `readonly` keyword which tells JS that it cannot be altered from outside the class.
+
+
+* Then move on to implementing a reducer for the shopping-list.
+* Create a new file named 'shopping-list.reducer.ts' under the 'store' directory within the feature module .
+* Within it we export a function, this function takes two parameters: the current state and the action. 
+* This function is called by NgRx
+
+shopping-list.reducer.ts:
+```
+import { Ingredient } from "../../shared/ingredient.model";
+import * as shoppingListActions from './shopping-list.actions'
+
+const initialState = {
+    ingredients: [
+        new Ingredient('cheese', 20),
+        new Ingredient('onion', 40)
+    ]
+}
+
+export function shoppingListReducer(state = initialState, action: shoppingListActions.AddIngredient){
+
+    switch(action.type){
+        case shoppingListActions.ADD_INGREDIENT:
+            //Course code:
+            // return {
+            //     ...state,
+            //     ingredients: [ ...state.ingredients, action]
+            // } 
+            let newState = {...initialState};
+            newState['ingredients'].push(action.payload);
+            return newState;
+        default: 
+            return state;
+    }
+}
+```
+* `initialState` is the initial data that we use, it is assigned as a default value to the state parameter so that the first time the function is called it is set. 
+* The first time the function is called NgRx will pass a initializer action and therefore the `default` case is set to return the `initialState` in this case.
+* NB: Very important that when using NgRX that current state must never be altered - it must stay immutable. Therefore we create a copy of the current state and then alter and return that copy. 
+
+## Setting up the NgRx Store
+* Must import and declare the `StoreModule` in the app module
+* Must then tell the `StoreModule` which reducers are involved, to do this call the `forRoot` method and pass a JS object defining the reducers involved. The key name is up to us however it should be descriptive as to which feature the reducer belongs to.
+
+app.module.ts:
+```
+...
+import { StoreModule } from '@ngrx/store';
+...
+  imports: [
+    BrowserModule,
+    AppRoutingModule,
+    HttpClientModule,
+    SharedModule,
+    StoreModule.forRoot({shoppingList: shoppingListReducer})
+  ],
+...
+```
+
+## Selecting a state
+* Will alter 'shopping-list.component.ts' to use the reducer to fetch the shopping-list state i.e. fetch the ingredients array.
+* Firstly inject the `Store` into the file. `Store` is a generic type and therefore must specify the type, which will be the key we specified in the app module and instead of its value being the reducer we specify the type that the reducer returns.
+* The ingredients array declared within 'shopping-list.component.ts' is then assigned an observable, this observable is returned by the `store.select()` method, this method takes in the key corresponding to the reducer for this feature.
+
+shopping-list.component.ts:
+```
+...
+import { Store } from '@ngrx/store'
+...
+export class ShoppingListComponent implements OnInit {
+
+  itemSelectedIndex:number;
+  ingredients: Observable<{ingredients: Ingredient[]}>;
+
+  constructor(private store: Store<{shoppingList: {ingredients: Ingredient[]}}>) { }
+
+  ngOnInit(): void {
+    this.ingredients = this.store.select('shoppingList');
+  }
+...
+```
+* Since the ingredients property is now of type observable, we cannot loop through it as done previously in the html file.
+* The solution is to use the `async` pipe in the html file.
+
+shopping-list.component.ts:
+```
+...
+  <ul class='list-group'>
+      <a 
+          class='list-group-item' 
+          style='cursor:pointer'
+          (click)="ingredientSelected(i)"
+          [ngClass]="{'active': (itemSelectedIndex === i)}"
+          *ngFor='let item of (ingredients | async).ingredients; let i = index'>
+          {{item.name}} ({{item.amount}})
+      </a>
+  </ul>
+...
+```
+
+## Dispatching actions
+
+
