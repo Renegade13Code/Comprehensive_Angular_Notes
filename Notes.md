@@ -910,17 +910,17 @@ const appRoutes: Route[] = [
 ```
 
 ## Redirection path matching
-* By default, Angular matches paths by prefix. That means, that the following route will match both /recipes  and just / 
+* By default, Angular matches paths by prefix. That means, that the following route will match both `/recipes` and just `/`
 
-{ path: '', redirectTo: '/somewhere-else' } 
+```{ path: '', redirectTo: '/somewhere-else' } ```
 
 Actually, Angular will give you an error here, because that's a common gotcha: This route will now ALWAYS redirect you! Why?
 
 Since the default matching strategy is "prefix" , Angular checks if the path you entered in the URL does start with the path specified in the route. Of course every path starts with ''  (Important: That's no whitespace, it's simply "nothing").
 
-To fix this behavior, you need to change the matching strategy to "full" :
+To fix this behavior, you need to change the matching strategy to `"full"` :
 
-{ path: '', redirectTo: '/somewhere-else', pathMatch: 'full' } 
+```{ path: '', redirectTo: '/somewhere-else', pathMatch: 'full' } ```
 
 Now, you only get redirected, if the full path is ''  (so only if you got NO other content in your path in this example).
 
@@ -3878,6 +3878,7 @@ firebase deploy
 
 
 # Section 24: NgRx
+* [Official Docs](https://ngrx.io/ "https://ngrx.io/")
 * Maintained and developed by part of the angular team.
 * Used for state management in bigger angular applications.
 * Note: that it is perfectly fine to manage state as done previously using RxJS and services. Should decide for yourself which is better.
@@ -3930,15 +3931,44 @@ import { Action } from '@ngrx/store'
 import { Ingredient } from 'src/app/shared/ingredient.model';
 
 const ADD_INGREDIENT = 'ADD_INGREDIENT';
+export const ADD_INGREDIENTS = 'ADD_INGREDIENTS';
+export const UPDATE_INGREDIENT = 'UPDATE_INGREDIENT';
+export const DELETE_INGREDIENT = 'DELETE_INGREDIENT';
+export const START_EDIT = 'START_EDIT'
+export const STOP_EDIT = 'STOP_EDIT'
 
 export class AddIngredient implements Action{
     readonly type = ADD_INGREDIENT;
-    payload: Ingredient;
-
+    constructor(public payload: Ingredient){}
 }
 
+export class AddIngredients implements Action{
+    readonly type = ADD_INGREDIENTS;
+    constructor(public payload: Ingredient[]){}
+}
+
+export class UpdateIngredient implements Action{
+    readonly type = UPDATE_INGREDIENT;
+    constructor(public payload: Ingredient){}
+}
+
+export class DeleteIngredient implements Action{
+    readonly type = DELETE_INGREDIENT;
+}
+
+export class StartEdit implements Action{
+    readonly type = START_EDIT;
+    constructor(public payload: number){}
+}
+
+export class StopEdit implements Action{
+    readonly type = STOP_EDIT;
+}
+
+export type shoppingListActions = AddIngredient | AddIngredients | UpdateIngredient | DeleteIngredient | StartEdit | StopEdit;
 ```
 * The class implements the `Action` interface which requires it to have a `type` property. The property uses the `readonly` keyword which tells JS that it cannot be altered from outside the class.
+* The exported type is used in the reducer to avoid type errors.
 
 
 * Then move on to implementing a reducer for the shopping-list.
@@ -3951,14 +3981,28 @@ shopping-list.reducer.ts:
 import { Ingredient } from "../../shared/ingredient.model";
 import * as shoppingListActions from './shopping-list.actions'
 
-const initialState = {
+export interface State{
+    ingredients: Ingredient[],
+    selectedIngredient: Ingredient,
+    selectedIngredientIndex: number
+}
+
+export interface AppState{
+    shoppingList: State
+}
+
+const initialState: State = {
     ingredients: [
         new Ingredient('cheese', 20),
         new Ingredient('onion', 40)
-    ]
+    ],
+    selectedIngredient: null,
+    selectedIngredientIndex: null
 }
 
 export function shoppingListReducer(state = initialState, action: shoppingListActions.AddIngredient){
+
+    let newState = JSON.parse(JSON.stringify(state));
 
     switch(action.type){
         case shoppingListActions.ADD_INGREDIENT:
@@ -3967,9 +4011,41 @@ export function shoppingListReducer(state = initialState, action: shoppingListAc
             //     ...state,
             //     ingredients: [ ...state.ingredients, action]
             // } 
-            let newState = {...initialState};
-            newState['ingredients'].push(action.payload);
+            newState.ingredients.push(action.payload);
+            Object.freeze(newState);
             return newState;
+
+        case shoppingListActions.ADD_INGREDIENTS:
+            newState.ingredients.push(...action.payload);
+            Object.freeze(newState);
+            return newState;
+
+        case shoppingListActions.UPDATE_INGREDIENT:
+            newState.ingredients[newState.selectedIngredientIndex].name = action.payload.name;
+            newState.ingredients[newState.selectedIngredientIndex].amount = action.payload.amount;
+            newState.selectedIngredient = null;
+            newState.selectedIngredientIndex = null;
+            Object.freeze(newState);
+            return newState;
+                case shoppingListActions.DELETE_INGREDIENT:
+            newState.ingredients.splice(newState.selectedIngredientIndex, 1);
+            newState.selectedIngredient = null;
+            newState.selectedIngredientIndex = null;
+            Object.freeze(newState);
+            return newState;
+
+        case shoppingListActions.START_EDIT:
+            newState.selectedIngredientIndex = action.payload;
+            newState.selectedIngredient = state.ingredients[action.payload];
+            Object.freeze(newState);
+            return newState;
+        
+        case shoppingListActions.STOP_EDIT:
+            newState.selectedIngredientIndex = null;
+            newState.selectedIngredient = null;
+            Object.freeze(newState);
+            return newState;
+
         default: 
             return state;
     }
@@ -3977,7 +4053,9 @@ export function shoppingListReducer(state = initialState, action: shoppingListAc
 ```
 * `initialState` is the initial data that we use, it is assigned as a default value to the state parameter so that the first time the function is called it is set. 
 * The first time the function is called NgRx will pass a initializer action and therefore the `default` case is set to return the `initialState` in this case.
-* NB: Very important that when using NgRX that current state must never be altered - it must stay immutable. Therefore we create a copy of the current state and then alter and return that copy. 
+* NB: Very important that when using NgRX that current state must never be altered - it must stay immutable. Therefore we create a copy of the current state and then alter and return that copy.
+* `Object.freeze()` freezes an object, other code cannot delete or change its properties. Ensures immutability.
+* Note that you should not have asynchronous code or access local storage from within the reducer.
 
 ## Setting up the NgRx Store
 * Must import and declare the `StoreModule` in the app module
@@ -4001,7 +4079,7 @@ import { StoreModule } from '@ngrx/store';
 ## Selecting a state
 * Will alter 'shopping-list.component.ts' to use the reducer to fetch the shopping-list state i.e. fetch the ingredients array.
 * Firstly inject the `Store` into the file. `Store` is a generic type and therefore must specify the type, which will be the key we specified in the app module and instead of its value being the reducer we specify the type that the reducer returns.
-* The ingredients array declared within 'shopping-list.component.ts' is then assigned an observable, this observable is returned by the `store.select()` method, this method takes in the key corresponding to the reducer for this feature.
+* An array of name 'ingredients' is declared within 'shopping-list.component.ts' its type is an observable. In `ngOnInit` the `store.select()` method is called, this method takes in the key corresponding to the reducer for this feature module and returns an observable.
 
 shopping-list.component.ts:
 ```
@@ -4038,7 +4116,362 @@ shopping-list.component.ts:
   </ul>
 ...
 ```
+* Note that if you needed that state anywhere else besides the template, can just subscribe to the observable returned by `store.select()`.
+
+e.g.
+```
+ this.store.select('shoppingList').subscribe()
+```
+* Angular should clear the above subscription for you but to be safe should do it manually i.e. unsubscribe in `ngOnDestroy`
 
 ## Dispatching actions
+
+* Actions should be dispatched where ever the state should be altered i.e. anywhere where the ingredients array is altered in this case.
+* To dispatch an action to a reducer must first instantiate a new action and then use the `dispatch` method of the injected `Store` to dispatch the action.
+
+shopping-list-edit.component.ts:
+```
+...
+import { Store } from '@ngrx/store';
+import * as shoppingListActions from '../store/shopping-list.actions';
+import * as fromShoppingList from '../store/shopping-list.reducer';
+...
+  export class ShoppingListEditComponent implements OnInit, OnDestroy {
+...
+  constructor(private shoppingListService: ShoppingListService, private store: Store<fromShoppingList.AppState>) { }
+...
+  onSubmit(){
+    let ingredient = new Ingredient(this.ingredientForm.value['ingredientName'], this.ingredientForm.value['ingredientAmount']);
+
+    if(!this.editMode){
+      let action = new shoppingListActions.AddIngredient(ingredient);
+      this.store.dispatch(action);
+    }else{
+      let action = new shoppingListActions.UpdateIngredient(ingredient);
+      this.store.dispatch(action);
+      this.store.dispatch(new shoppingListActions.StopEdit());
+      this.editMode = false;
+    }
+    this.ingredientForm.reset();
+  }
+...
+```
+
+## One Root State
+* Once multiple reducers are implemented for each feature module it is important to create a root state
+* To do this declare a 'store' folder in the app directory and create `app.reducer.ts` file within it.
+* The `app.reducer.ts` should declare the `AppState` interface within in.
+* Should then export a constant of type `ActionReducerMap` which can be imported into the app module and passed to the `storeModule.forRoot()` as a parameter.
+
+app.reducer.ts:
+```
+import * as fromShoppingList from 'src/app/shopping-list/store/shopping-list.reducer';
+import * as fromAuthenticate from 'src/app/authenticate/store/auth.reducer';
+import { ActionReducerMap } from '@ngrx/store';
+
+export interface AppState {
+    shoppingList: fromShoppingList.State,
+    auth: fromAuthenticate.State
+}
+
+export const appReducer: ActionReducerMap<AppState> = {
+    shoppingList: fromShoppingList.shoppingListReducer,
+    auth: fromAuthenticate.authReducer
+}
+```
+app.module.ts:
+```
+...
+  imports: [
+    BrowserModule,
+    AppRoutingModule,
+    HttpClientModule,
+    SharedModule,
+    StoreModule.forRoot(appReducer)
+  ],
+...
+```
+
+## Important note on Actions:
+* Lecture 365
+* When the `StoreModule` is initialized a initializer action is sent to all reducers
+* When an action is dispatched using the `Store.dispatch()` method, the action given is sent to all the reducers specified in the `StoreModule.forRoot` parameter (of type `ActionReducerMap`).
+* This is why it is important to always have a default state that returns the current state in all reducers, otherwise the current state corresponding to a specific reducer will be dropped when an action is dispatched to a different reducer.
+* Since actions are dispatched to all reducers it is __required that all action identifiers be unique across the entire application__.
+* A good way to enforce this uniqueness in larger applications is to prefix the action identifier with the feature name followed by a description of what it does e.g.:
+
+shopping-list.actions.ts:
+```
+...
+export const ADD_INGREDIENT = '[Shopping List] ADD_INGREDIENT';
+export const ADD_INGREDIENTS = '[Shopping List] ADD_INGREDIENTS';
+export const UPDATE_INGREDIENT = '[Shopping List] UPDATE_INGREDIENT';
+export const DELETE_INGREDIENT = '[Shopping List] DELETE_INGREDIENT';
+export const START_EDIT = '[Shopping List] START_EDIT';
+export const STOP_EDIT = '[Shopping List] STOP_EDIT';
+export const UPDATE_FROM_SERVER = '[Shopping List] UPDATE_FROM_SERVER';
+...
+```
+
+## NgRx Effects
+* Side effects are parts in your code where you run some logic that is important for your application but not so important for the immediate update of the state.
+* NgRx has a library to help handle effects.
+* To install run:
+
+```
+npm install --save @ngrx/effects
+```
+* NgRx effects can for e.g. be used to replace services that are used to handle HTTP requests and storing to local storage. 
+* This is however not compulsory, can handle those things in services and use HgRx to handle the  application state.
+
+### Defining an Effect
+* Start by creating a new file within the feature modules store folder e.g. 'auth.effects.ts'
+* This file should export a class with a name of your choosing, the class should inject `Actions` from `@ngrx/effects`.
+* The class therefore needs the `@Injectable()` decorator so that things can be injected into this class i.e. `Actions` & `HttpClient`.
+* `Actions` is an observable that will give you access to all dispatched actions so that you can react to them (differently to how the reducer reacts). The idea is that you do stuff that does not affect the application state but however needs to be done when an action is dispatched, therefore leaving code in reducer to just manage the state.
+* Can therefore have asynchronous code here that dispatches an action when it completes.  
+* Effects are defined as properties within the class, their names should be be descriptive of the effect they handle. They are created by assigning the `createEffect()` method to them.
+* This method takes an arrow function that should return the `Actions` observable (no need to subscribe NgRx will do that). 
+* Then add a `pipe` with the ngrx `ofType` operator. This operator takes the action you wish to handle as its argument, and will essentially check if the dispatched action is the same as given argument. If it is then angular will continue with the observable chain else it wont trigger the effect.
+* Note that `ofType` operator can be given multiple actions id you wish to run the same code for multiple actions.
+
+auth.effects.ts:
+```
+export interface authResponseData{
+    idToken: 	string, 
+    email: 	string, 	
+    refreshToken: string, 	
+    expiresIn: 	string ,
+    localId: 	string,
+    registered?: boolean
+}
+
+@Injectable()
+export class AuthEffects {
+    
+  authLogin = createEffect(() => {
+      return this.actions$.pipe(
+          ofType(authActions.LOGIN_START),
+          switchMap((authData: authActions.LoginStart) => {
+
+              let url = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=' + environment.firebaseApiKey; 
+              return this.http.post<authResponseData>(
+                  url, 
+                  {email: authData.payload.email, password: authData.payload.password, returnSecureToken: true}
+              )
+              .pipe(map(resData => {
+                  const expirationDate = new Date(Date.now() + (+resData.expiresIn * 1000));
+                  const user = new User(resData.email,
+                      resData.localId,
+                      resData.idToken,
+                      expirationDate);
+                  return new authActions.AuthenticateSuccess(user);
+              }),catchError((errorRes: HttpErrorResponse) => {
+
+                //Code to assign errorResponseMessage
+                ...
+                return of(new authActions.AuthenticateFail(errorResponseMessage));
+              });
+          })
+      );
+  });
+  
+  constructor(private actions$: Actions, private http: HttpClient){}
+}
+
+```
+* Note that the `$` is just a convention in the docs, to identify an observable.
+* The `switchMap` operator allows us to create a new observable by using as its input, the data emitted by the observable that it is applied to. [switchMap](https://rxjs.dev/api/operators/switchMap 'https://rxjs.dev/api/operators/switchMap')
+* Since `switchMap` returns an observable, any operators applied to it need to return an observable i.e. `catchError`.
+* __An effect by default should return a new action when it is done.__
+* Note that if you use the `catchError` operator on an observable and the observable throws an error, then logic in the function given to the `catchError` operator will be executed. __The original observable that threw the error is completed after throwing an error__, this means the observable chain dies with the error. This is problematic for effects because an effect should never die for the duration of application runtime, or effect will essentially be unable to react to the appropriate dispatched action. 
+* Thus __do not__ place a `catchError` operator on the outer observable i.e. the `actions$` observable, rather handle the errors that occur on observables inside the outer observable.
+* It is therefore __very__ important that any operators applied to the inner observable (i.e. the observable returned by `switchMap`) return non erroneous observables, as this will cause an error in the outer observable.
+* We thus use the `of` operator which is a utility function for creating a new non erroneous observable. Note that the `map` operator will wrap the return value in an observable and therefore `of` operator is not needed.
+* The action returned at the end of the observable chain is automatically dispatched by NgRx i.e. `new authActions.AuthenticateSuccess(user)`.
+
+auth.actions.ts:
+```
+...
+export const LOGIN_START = '[Authenticated] LOGIN_START'
+...
+export class LoginStart implements Action{
+    readonly type = LOGIN_START;
+    constructor(public payload: {email: string, password: string}){}
+}
+...
+export type authActions = LoginStart|  AuthenticateSuccess | Logout;
+```
+* __Must__ register the `EffectsModule` after the `StoreModule` in the app module, the `forRoot` method should also be called on this module and passed and array of all the effect classes in the application.
+
+app.module.ts:
+```
+...
+    StoreModule.forRoot(appReducer),
+    EffectsModule.forRoot([AuthEffects])
+...
+```
+* Note that it is not always necessary for a effect to return an observable that resolves to an action which can then be dispatched by NgRx. In this case NgRx should be notified by passing a config object as a second parameter to `createEffect`. This object should contain a dispatch property which is set to false e.g.:
+
+auth.effects.ts:
+```
+...
+  authSuccess = createEffect(() => {
+    return this.actions$.pipe(
+        ofType(authActions.AUTHENTICATE_SUCCESS),
+        tap(() => {
+            this.router.navigate(['/']);
+            })
+        );
+  }, {dispatch: false});
+...
+```
+* Also note above that it is possible to use the router to perform navigation from within an effect. This should be done in an effect because it is an action that does not affect the state of the application but is important for UI.
+* It appears that when an action is dispatched the corresponding code in the reducer runs first and then the code in the effect, given that code reducer and effect are defined for the given action.
+
+
+## Using the store dev-tools
+* There is a firefox extension that allows you to view actions being dispatched, and the state of the application in real time.
+* To install extension visit: [redux dev-tools](https://addons.mozilla.org/en-US/firefox/addon/reduxdevtools/?utm_source=addons.mozilla.org&utm_medium=referral&utm_content=search 'https://addons.mozilla.org/en-US/firefox/addon/reduxdevtools/?utm_source=addons.mozilla.org&utm_medium=referral&utm_content=search')
+* After that run the following in your project using the CLI:
+
+```
+npm install --save-dev @ngrx/store-devtools
+```
+* The `--save-dev` tells node this is a development only dependency.
+* Then in the app component import and declare the `StoreDevtoolsModule`. The `instrument` method is called on it and an object is passed as its parameter. This object essentially tells Angular to only log when in production mode (due to `environment.production`);
+
+app.component.ts:
+```
+...
+import { StoreDevtoolsModule } from '@ngrx/store-devtools';
+...
+  imports: [
+...
+    StoreDevtoolsModule.instrument({logOnly: environment.production})
+...
+```
+* Can now access the devtools in the browser by inspecting and clicking the redux tab.
+* Next can install a router tool to view routing information in the browser.
+
+run:
+```
+npm install --save @ngrx/router-store
+```
+* Then add following code to app component:
+
+app.component.ts:
+```
+...
+import { StoreRouterConnectingModule } from '@ngrx/router-store';
+...
+  imports: [
+...
+    StoreRouterConnectingModule.forRoot()
+...
+```
+
+## Listening to dispatched actions anywhere 
+### Dispatching actions in a resolver
+* This is not a section from the course but is a application note from the course project.
+* When implementing a resolver to apply to certain navigation paths, the resolver needs to return a observable or a promise as a http request.
+* The resolver will wait for the observer/promise to complete before it loads the route, because this means the data has been fetched and loaded.
+* If the fetching of data is being done by an action or an effect, we cannot simply return the action because the resolver expects an observable/promise.
+* If the dispatched action is returned, the resolver will resolve instantly and the route will be loaded before the data has been loaded correctly.
+* The solution is to dispatch the action that loads the relevant data and then wait for the effect that is triggered by the action to complete.
+* To do this inject `Actions` from `@ngrx/effects` into the class. And then return the `Actions` observable set up to fire when the action after the action we are interested in is dispatched. In this case `UPDATE_FROM_SERVER` fires after `FETCH_DATA`  which is the action we want.
+
+recipe.effect.ts:
+```
+...
+  fetchRecipes = createEffect(() => {
+      return this.actions$.pipe(
+          ofType(recipeActions.FETCH_RECIPES),
+          switchMap(() => {
+
+              return this.http.get<Recipe[]>('https://ng-course-recipe-book-b490c-default-rtdb.firebaseio.com/recipes/.json')
+              .pipe(map((responseData) => {
+                  //This code adds an ingredient key and assigns it a value of [] for Recipes in the database that do not have an ingredients property which is possible as the ingredients are not required in the form.
+                  for(let item of responseData){
+                      if(item['ingredients'] === undefined){
+                          item['ingredients'] = [];
+                      }
+                  }
+                  return new recipeActions.UpdateFromServer(responseData);               
+              }))
+          })
+      )
+  });
+...
+```
+recipe-resolver.service.ts:
+```
+...
+@Injectable({ providedIn: 'root' })
+export class RecipeResolverService implements Resolve<Recipe[]> {
+  constructor(
+    private dataStorageService: DataStorageService,
+    private recipesService: RecipeService,
+    private store: Store<fromApp.AppState>,
+    private actions$: Actions
+  ) {}
+
+  resolve(route: ActivatedRouteSnapshot, state: RouterStateSnapshot) {
+  
+    this.store.dispatch(new recipeActions.FetchRecipes());
+    return this.actions$.pipe(
+      ofType(recipeActions.UPDATE_FROM_SERVER),
+      take(1)
+    )
+      
+  }
+}
+...
+```
+* The take operator is used so that value is taken once and then subscription is destroyed i.e. no ongoing subscription.
+
+
+## Accessing State from within an Effect
+* To access the application state from within the an effect, can make use of the `withLatestFrom` observable operator.
+* The `withLatestFrom` operator allows us to merge a value from another observable into this observable. Combines the source Observable with other Observables to create an Observable whose values are calculated from the latest values of each, only when the source emits. [rxjs withLatestFrom](https://rxjs.dev/api/operators/withLatestFrom "https://rxjs.dev/api/operators/withLatestFrom")
+* `withLatestFrom` takes an observable as its parameter. It then basically passes the data received by that observable to the next operator listed.
+* The next listed observable operator will then take an array as its input, the first value being the data received by the source observable (the action data in the below e.g.), and the second being the data received by the observable passed to `withLatestFrom`.
+
+recipe.effects.ts:
+```
+...
+
+  storeRecipes = createEffect(() => {
+      return this.actions$.pipe(
+          ofType(recipeActions.STORE_RECIPES),
+          withLatestFrom(this.store.select("recipes")),
+          switchMap(([actionData, recipeState]) => {
+              let url = 'https://ng-course-recipe-book-b490c-default-rtdb.firebaseio.com/recipes/.json';
+              return this.http.put<{[key: string] : string}>(url, recipeState.recipes, {
+                  observe: 'body'
+              })
+          })
+      )
+  }, {dispatch: false});
+...
+```
+## Alternative NgRx Syntax
+* The NgRx team also released an alternative syntax for creating actions, reducers, effects etc.
+* The approach and setup shown in this course is a bit more verbose (which actually has the advantage of seeing more of the things that go on under the hood). Exploring the alternative, a bit shorter syntax might therefore be an interesting next step.
+* see '/home/phoenix/udemy/Angular/section-24-ngrx/ngrx-create-functions-syntax.zip' for details.
+* Docs also cover this new syntax.
+
+# Angular Universal
+* Allows you to pre-render your angular app on the server, i.e. pre-render the pages your users visit on the server and then pass the rendered html code( with the angular JS imports included) to the browser.
+* This is useful for cases where the user has a slow internet connection.
+* Also helps search engines index your website better as it allows them to scan your initial page already rendered.
+
+## Adding angular universal
+* To install run:
+
+```
+ng add @nguniversal/express-engine --clientProject CourseProject
+```
+* Note that 'CourseProject' is found in the `angular.json`
 
 
